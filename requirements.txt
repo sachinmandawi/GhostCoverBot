@@ -1,0 +1,20 @@
+# Core
+python-telegram-bot==20.6
+pytz==2024.1
+tzdata==2024.1
+python-dotenv==1.0.1
+
+# Async / HTTP
+aiohttp==3.10.5
+aiofiles==24.1.0
+
+# Data & export (use available csvkit)
+pandas==2.2.3
+openpyxl==3.1.5
+csvkit==2.1.0
+
+# Utilities
+requests==2.32.3
+urllib3==2.2.2
+tenacity==8.3.0
+loguru==0.7.2
