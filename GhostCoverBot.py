@@ -538,13 +538,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
 # ---------- Owner Text & File Handler ----------
 async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_owner(uid) or not context.user_data.get("flow"): return
+    if not context.user_data.get("flow"):
+        return
 
     flow = context.user_data.get("flow")
     
     if "file" in flow and update.message.document:
         if not update.message.document.file_name.endswith(".json"):
+            context.user_data.clear()
             return await update.message.reply_text("❌ Invalid file. Please upload a `.json` file.", reply_markup=ReplyKeyboardRemove())
         
         shutil.copyfile(DATA_FILE, LAST_BACKUP_FILE)
@@ -561,7 +562,6 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             existing = load_data()
             merged, summary = merge_data(existing, new_data)
             save_data(merged)
-            
             summary_text = (
                 "✅ *Merge Summary:*\n"
                 f"* New Bot Users: {summary.get('new_bot_users', 0)}\n"
@@ -580,6 +580,17 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.clear()
         return await update.message.reply_text("❌ Cancelled.", reply_markup=ReplyKeyboardRemove())
 
+    if flow == "force_add_step1":
+        entry = _normalize_channel_entry(text)
+        context.user_data["force_add_entry"] = entry
+        context.user_data["flow"] = "force_add_step2"
+        await update.message.reply_text(
+            "✅ Channel ID/Link set. Now send the button text (e.g., `Join My Channel`).",
+            reply_markup=cancel_btn()
+        )
+        return
+
+    completed_flow = True
     if flow == "broadcast_text":
         sent = failed = 0
         for u in load_data().get("subscribers", []):
@@ -597,34 +608,23 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if new_owner_id not in data["owners"]:
                 data["owners"].append(new_owner_id)
                 save_data(data)
-                await update.message.reply_text(f"✅ Added owner `{new_owner_id}`.", parse_mode="Markdown")
-                
+                await update.message.reply_text(f"✅ Added owner `{new_owner_id}`.", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
                 try:
-                    await context.bot.send_message(
-                        chat_id=new_owner_id,
-                        text="🎉 Congratulations! You have been promoted to an owner of this bot."
-                    )
+                    await context.bot.send_message(chat_id=new_owner_id, text="🎉 Congratulations! You have been promoted to an owner of this bot.")
                 except Exception as e:
                     print(f"[INFO] Could not notify new owner {new_owner_id}: {e}")
-
             else:
-                await update.message.reply_text("This user is already an owner.")
+                await update.message.reply_text("This user is already an owner.", reply_markup=ReplyKeyboardRemove())
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID. Please send a numeric ID.")
+            await update.message.reply_text("❌ Invalid user ID. Please send a numeric ID.", reply_markup=ReplyKeyboardRemove())
 
-    elif flow == "force_add_step1":
-        entry = _normalize_channel_entry(text)
-        context.user_data["force_add_entry"] = entry
-        context.user_data["flow"] = "force_add_step2"
-        await update.message.reply_text("✅ Channel ID/Link set. Now send the button text (e.g., `Join My Channel`).")
-        
     elif flow == "force_add_step2":
         entry = context.user_data.get("force_add_entry", {})
         entry["join_btn_text"] = text
         data = load_data()
         data.setdefault("force", {}).setdefault("channels", []).append(entry)
         save_data(data)
-        await update.message.reply_text("✅ Channel added successfully!")
+        await update.message.reply_text("✅ Channel added successfully!", reply_markup=ReplyKeyboardRemove())
         
     elif flow == "set_backup_interval":
         try:
@@ -634,13 +634,16 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             save_data(data)
             if data["auto_backup"].get("enabled"):
                 schedule_auto_backup_job(context.application, minutes)
-            await update.message.reply_text(f"✅ Interval set to {minutes} minutes.")
+            await update.message.reply_text(f"✅ Interval set to {minutes} minutes.", reply_markup=ReplyKeyboardRemove())
         except Exception as e:
-            await update.message.reply_text(f"❌ Invalid format: {e}")
-
-    context.user_data.clear()
-    await update.message.reply_text("Operation complete.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(f"❌ Invalid format: {e}", reply_markup=ReplyKeyboardRemove())
     
+    else:
+        completed_flow = False
+
+    if completed_flow:
+        context.user_data.clear()
+
 # ---------- Universal Message Copier & Handlers ----------
 async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private": return
