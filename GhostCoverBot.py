@@ -1,4 +1,4 @@
-# ghostcoverbot_full_updated.py
+# ghostcoverbot_full_updated_fixed.py
 # Ready-to-run GhostCoverBot (copy everything in private chats)
 # Requirements: python-telegram-bot >= 20.x
 
@@ -70,6 +70,7 @@ def _check_and_reset_daily_stats(data):
         stats[today] = {"new_users": 0}
     return data
 
+
 def _ensure_data_keys(data):
     for key, value in DEFAULT_DATA.items():
         data.setdefault(key, value)
@@ -84,6 +85,7 @@ def _ensure_data_keys(data):
         data["stats"] = {}
     return data
 
+
 def load_data_from_local():
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -95,25 +97,31 @@ def load_data_from_local():
             data = DEFAULT_DATA.copy()
     return _ensure_data_keys(data)
 
+
 def save_data_to_local(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+
 def load_data():
     return load_data_from_local()
+
 
 def save_data(data):
     save_data_to_local(data)
 
+
 def is_owner(uid: int) -> bool:
     data = load_data()
     return uid in data.get("owners", [])
+
 
 class IsOwnerFilter(BaseFilter):
     def filter(self, message):
         if not message or not getattr(message, "from_user", None):
             return False
         return is_owner(message.from_user.id)
+
 
 is_owner_filter = IsOwnerFilter()
 
@@ -123,12 +131,14 @@ def merge_data(existing: dict, new: dict):
     summary = {"new_bot_users": 0, "owners_added": 0, "force_channels_added": 0, "chats_added": 0}
 
     def to_int_list(items):
-        if not isinstance(items, list): return []
+        if not isinstance(items, list):
+            return []
         result = []
         for item in items:
             try:
                 result.append(int(item))
             except Exception:
+                # keep non-int IDs as-is? currently skip; you can change behavior if needed
                 pass
         return result
 
@@ -185,7 +195,8 @@ def merge_data(existing: dict, new: dict):
 
 # ---------- Utility functions ----------
 def _normalize_channel_entry(raw):
-    if isinstance(raw, dict): return raw
+    if isinstance(raw, dict):
+        return raw
     if isinstance(raw, str):
         text = raw.strip()
         if text.startswith("http"):
@@ -194,15 +205,18 @@ def _normalize_channel_entry(raw):
             return {"chat_id": text, "invite": None, "join_btn_text": None}
     return {}
 
+
 def _derive_query_chat_from_entry(ch):
     chat_id = ch.get("chat_id")
-    if chat_id: return chat_id
+    if chat_id:
+        return chat_id
     invite = ch.get("invite")
     if invite and "t.me/" in invite:
         possible = invite.rstrip("/").split("/")[-1]
         if possible and not possible.lower().startswith(("joinchat", "+")):
             return f"@{possible}"
     return None
+
 
 def build_join_keyboard_for_channels_list(ch_list, force_cfg):
     buttons = []
@@ -218,10 +232,12 @@ def build_join_keyboard_for_channels_list(ch_list, force_cfg):
     rows.append([InlineKeyboardButton(check_label, callback_data="check_join")])
     return InlineKeyboardMarkup(rows)
 
+
 async def get_missing_channels(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     force = load_data().get("force", {})
     raw_channels = force.get("channels", [])
-    if not raw_channels: return [], False
+    if not raw_channels:
+        return [], False
     
     missing, check_failed = [], False
     for ch_raw in raw_channels:
@@ -240,8 +256,10 @@ async def get_missing_channels(context: ContextTypes.DEFAULT_TYPE, user_id: int)
             missing.append(ch)
     return missing, check_failed
 
+
 async def prompt_user_with_missing_channels(update: Update, context: ContextTypes.DEFAULT_TYPE, missing_norm_list, check_failed=False):
-    if not missing_norm_list: return
+    if not missing_norm_list:
+        return
     text = "🔒 *Access Restricted*\n\nYou need to join the required channels. Tap the buttons, join, then press **Verify**."
     kb = build_join_keyboard_for_channels_list(missing_norm_list, load_data().get("force", {}))
     target = update.callback_query.message if update.callback_query else update.message
@@ -256,6 +274,7 @@ def owner_panel_kb():
         [InlineKeyboardButton("⬅️ Close", callback_data="owner_close")],
     ])
 
+
 def db_panel_kb():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📥 Import (overwrite)", callback_data="db_import"), InlineKeyboardButton("📤 Export", callback_data="db_export")],
@@ -265,6 +284,7 @@ def db_panel_kb():
         [InlineKeyboardButton("⚙️ Auto Backup", callback_data="db_autobackup")],
         [InlineKeyboardButton("⬅️ Back to Owner Panel", callback_data="db_back")],
     ])
+
 
 def autobackup_kb(data):
     ab = data.get("auto_backup", {})
@@ -276,6 +296,7 @@ def autobackup_kb(data):
         [InlineKeyboardButton("⬅️ Back", callback_data="db_back")],
     ])
 
+
 def force_setting_kb(force: dict):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Toggle Force-Join", callback_data="force_toggle"), InlineKeyboardButton("➕ Add Channel", callback_data="force_add")],
@@ -283,20 +304,38 @@ def force_setting_kb(force: dict):
         [InlineKeyboardButton("⬅️ Back", callback_data="force_back")],
     ])
 
+
 def cancel_btn():
     return ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True, one_time_keyboard=True)
 
 # ---------- Auto-backup helpers ----------
 def parse_interval_to_minutes(text: str) -> int:
     s = text.strip().lower()
-    if s.isdigit(): return int(s)
+    if s.isdigit():
+        return int(s)
     total = 0
-    if 'h' in s or 'm' in s:
-        hours = int(re.search(r"(\d+)\s*h", s).group(1)) if 'h' in s and re.search(r"(\d+)\s*h", s) else 0
-        minutes = int(re.search(r"(\d+)\s*m", s).group(1)) if 'm' in s and re.search(r"(\d+)\s*m", s) else 0
-        total = hours * 60 + minutes
-    if total <= 0: raise ValueError("Interval must be positive.")
+    # safer parsing: find hours and minutes with regex
+    hours_match = re.search(r"(\d+)\s*h", s)
+    mins_match = re.search(r"(\d+)\s*m", s)
+    if hours_match:
+        try:
+            hours = int(hours_match.group(1))
+        except Exception:
+            hours = 0
+    else:
+        hours = 0
+    if mins_match:
+        try:
+            minutes = int(mins_match.group(1))
+        except Exception:
+            minutes = 0
+    else:
+        minutes = 0
+    total = hours * 60 + minutes
+    if total <= 0:
+        raise ValueError("Interval must be positive.")
     return total
+
 
 async def perform_and_send_backup(context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -325,6 +364,7 @@ async def perform_and_send_backup(context: ContextTypes.DEFAULT_TYPE):
         os.remove(fname)
     except Exception as e:
         print(f"Auto-backup failed: {e}")
+
 
 def schedule_auto_backup_job(application: Application, interval_minutes: int):
     # remove existing
@@ -361,6 +401,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(data)
 
     await update.message.reply_text(WELCOME_TEXT, parse_mode="Markdown")
+
 
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
@@ -463,7 +504,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if payload == "owner_broadcast":
         context.user_data["flow"] = "broadcast_text"
-        return await query.message.reply_text("📢 Send the message to broadcast:", reply_markup=cancel_btn())
+        return await query.message.reply_text("📢 Send the message to broadcast (text, photo, file, etc.):", reply_markup=cancel_btn())
 
     if payload == "owner_manage":
         kb = [[InlineKeyboardButton("➕ Add", callback_data="mgr_add"), InlineKeyboardButton("📜 List", callback_data="mgr_list")],
@@ -479,6 +520,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if payload == "mgr_remove":
         owners = data.get("owners", [])
         if len(owners) <= 1: return await query.message.reply_text("❌ At least one owner must remain.")
+        kb = [[InlineKeyboardButton(f"Remove: {_normalize_channel_entry(ch).get('chat_id') or _normalize_channel_entry(ch).get('invite') or 'Invalid Entry'}", callback_data=f"force_rem_{i}")] for i, ch in enumerate(data.get("force", {}).get("channels", []))]
         kb = [[InlineKeyboardButton(f"Remove: {o}", callback_data=f"mgr_rem_{i}")] for i, o in enumerate(owners)]
         return await query.message.edit_text("Select an owner to remove:", reply_markup=InlineKeyboardMarkup(kb))
     
@@ -552,44 +594,114 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if payload == "force_no_invite":
         return await query.answer("⚠️ No invite URL available for this channel.", show_alert=True)
 
-# ---------- Owner Text & File Handler ----------
+# ---------- Owner Text & File Handler (Helper Function) ----------
 async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Yeh function ab 'echo_message' ke dwara call kiya jaata hai
+    # jab context.user_data.get("flow") set hota hai.
+    
     if not context.user_data.get("flow"):
         return
 
     flow = context.user_data.get("flow")
-    
+
+    # --- 1. Broadcast Flow (Ab yeh sabhi message types ko handle karta hai) ---
+    if flow == "broadcast_text":
+        sent = failed = 0
+        message_to_broadcast = update.message  # Bhejne waala poora message
+        
+        users_count = len(load_data().get("subscribers", []))
+        await update.message.reply_text(f"⏳ Broadcasting message to {users_count} users...")
+
+        for u in load_data().get("subscribers", []):
+            try:
+                # .copy() ka istemaal karke message ko bhejein (text, photo, file, sab kaam karega)
+                await message_to_broadcast.copy(chat_id=u)
+                sent += 1
+            except Exception:
+                failed += 1
+        
+        await update.message.reply_text(f"✅ Broadcast done. Sent: {sent}, Failed: {failed}", reply_markup=ReplyKeyboardRemove())
+        context.user_data.clear()
+        return  # Broadcast ke baad function ko rok dein
+
+    # --- 2. File-based Flows (Database Import) ---
     if "file" in flow and update.message.document:
-        if not update.message.document.file_name.endswith(".json"):
+        # Safer file handling and robust merge response
+        fname = getattr(update.message.document, "file_name", "") or ""
+        if not fname.lower().endswith(".json"):
             context.user_data.clear()
             return await update.message.reply_text("❌ Invalid file. Please upload a `.json` file.", reply_markup=ReplyKeyboardRemove())
-        
-        shutil.copyfile(DATA_FILE, LAST_BACKUP_FILE)
-        await update.message.reply_text("✅ Backup of current database created.")
-        
-        json_file = await update.message.document.get_file()
-        file_content = await json_file.download_as_bytearray()
-        new_data = json.loads(file_content.decode("utf-8"))
 
+        # backup existing DB if present
+        try:
+            if os.path.exists(DATA_FILE):
+                shutil.copyfile(DATA_FILE, LAST_BACKUP_FILE)
+                await update.message.reply_text("✅ Backup of current database created.")
+            else:
+                await update.message.reply_text("⚠️ No existing DB found — proceeding with import.")
+        except Exception as e:
+            # log and continue
+            print(f"[WARN] Could not create LAST_BACKUP_FILE: {e}")
+
+        # download and parse uploaded JSON
+        try:
+            json_file = await update.message.document.get_file()
+            file_content = await json_file.download_as_bytearray()
+            new_data = json.loads(file_content.decode("utf-8"))
+        except Exception as e:
+            context.user_data.clear()
+            return await update.message.reply_text(f"❌ Failed to read JSON file: {e}", reply_markup=ReplyKeyboardRemove())
+
+        # Overwrite import
         if flow == "db_import_file":
-            save_data(new_data)
-            await update.message.reply_text("✅ Database successfully imported (overwritten).", reply_markup=ReplyKeyboardRemove())
+            try:
+                save_data(new_data)
+                await update.message.reply_text("✅ Database successfully imported (overwritten).", reply_markup=ReplyKeyboardRemove())
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to save imported database: {e}", reply_markup=ReplyKeyboardRemove())
+
+        # Merge import
         elif flow == "db_import_merge_file":
-            existing = load_data()
-            merged, summary = merge_data(existing, new_data)
-            save_data(merged)
-            summary_text = (
-                "✅ *Merge Summary:*\n"
-                f"* New Bot Users: {summary.get('new_bot_users', 0)}\n"
-                f"* Owners Added: {summary.get('owners_added', 0)}\n"
-                f"* Force Channels Added: {summary.get('force_channels_added', 0)}"
-            )
-            await update.message.reply_text(summary_text, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
-        
+            try:
+                existing = load_data()
+                merged, summary = merge_data(existing, new_data)
+                save_data(merged)
+
+                # Ensure summary keys exist and are ints
+                new_users = int(summary.get("new_bot_users", 0) or 0)
+                owners_added = int(summary.get("owners_added", 0) or 0)
+                force_added = int(summary.get("force_channels_added", 0) or 0)
+
+                # Build a Markdown-safe message (avoid accidental Markdown errors)
+                summary_lines = [
+                    "✅ Merge completed.",
+                    "",
+                    "*Merge Summary:*",
+                    f"- New Bot Users: `{new_users}`",
+                    f"- Owners Added: `{owners_added}`",
+                    f"- Force Channels Added: `{force_added}`"
+                ]
+                summary_text = "\n".join(summary_lines)
+
+                # Send as Markdown but keep it simple (numbers backticked to avoid formatting issues)
+                await update.message.reply_text(summary_text, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+            except Exception as e:
+                # If anything fails, notify owner and log
+                print(f"[ERROR] Merge/import failed: {e}")
+                await update.message.reply_text(f"❌ Merge failed: {e}", reply_markup=ReplyKeyboardRemove())
+
         context.user_data.clear()
+        return  # stop further processing after file flows
+
+    # --- 3. Text-based Flows (baaki sabhi) ---
+    # Agar yahan tak pahunche hain, toh hum text message expect kar rahe hain
+    if not update.message or not update.message.text:
+        # Agar user "Cancel" button ki jagah photo bhej de, toh usey rokein
+        if flow != "broadcast_text": # Broadcast text-only nahi hai
+             await update.message.reply_text("❌ Is step ke liye text ki zaroorat thi. Flow cancelled.", reply_markup=ReplyKeyboardRemove())
+             context.user_data.clear()
         return
 
-    if not update.message or not update.message.text: return
     text = update.message.text.strip()
 
     if text == "❌ Cancel":
@@ -608,14 +720,7 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     completed_flow = True
     if flow == "broadcast_text":
-        sent = failed = 0
-        for u in load_data().get("subscribers", []):
-            try:
-                await context.bot.send_message(u, text)
-                sent += 1
-            except Exception:
-                failed += 1
-        await update.message.reply_text(f"✅ Broadcast done. Sent: {sent}, Failed: {failed}", reply_markup=ReplyKeyboardRemove())
+        pass 
     
     elif flow == "mgr_add":
         try:
@@ -660,28 +765,44 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if completed_flow:
         context.user_data.clear()
 
-# ---------- Universal Message Copier & Handlers ----------
+# ---------- Universal Message Copier & Handlers (THE "SMART" HANDLER) ----------
 async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Only handle private chats (explicit filter also set when adding handler)
+    # Only handle private chats
     if update.effective_chat.type != "private": 
         return
+    
     user = update.effective_user
     
-    # If owner is in admin_mode, skip copying for them
-    if is_owner(user.id) and context.user_data.get('admin_mode'):
-        return
-
+    # --- Start: Owner Logic ---
+    if is_owner(user.id):
+        # Check if owner is in an active "flow" (like broadcast, add_owner, etc.)
+        if context.user_data.get("flow"):
+            # If yes, send the message to the flow handler
+            await owner_flow_handler(update, context)
+            return  # Aur ruk jao
+        
+        # Check if owner is just in "admin mode" (panel is open, but no flow active)
+        if context.user_data.get('admin_mode'):
+            # If yes, message ko ignore karo. (Na copy karo, na process karo)
+            return  # Aur ruk jao
+    # --- End: Owner Logic ---
+    
+    # Agar hum yahan tak pahunche hain, toh iska matlab hai:
+    # 1. Yeh ek normal user hai.
+    # 2. Yeh ek owner hai jo "normal mode" mein hai (na admin_mode, na koi flow).
+    
+    # --- Start: Normal Echo Logic (with Force Join) ---
     data = load_data()
     force = data.get("force", {})
     force_enabled = force.get("enabled", False)
 
-    # Only enforce force-join if it's enabled AND channels exist in config
+    # Force-join check sirf NON-owners ke liye
     if not is_owner(user.id) and force_enabled and force.get("channels"):
         missing, _ = await get_missing_channels(context, user.id)
         if missing:
             return await prompt_user_with_missing_channels(update, context, missing)
 
-    # Try to copy the incoming message back to the same chat as a fresh message from the bot.
+    # Sabhi checks pass ho gaye, message ko copy karo
     try:
         await update.message.copy(chat_id=update.effective_chat.id)
     except Exception as e:
@@ -734,17 +855,19 @@ def main():
     )
 
     # Handler order matters:
+    # 1. Groups/Channels mein chat record karna
     app.add_handler(MessageHandler((filters.ChatType.GROUP | filters.ChatType.SUPERGROUP | filters.ChatType.CHANNEL) & ~filters.COMMAND, record_chat_handler))
     
-    # --- FIX APPLIED HERE ---
-    # echo_message (copy handler) is NOW FIRST, so it runs for owners in normal mode.
+    # 2. "SMART" Handler: Yeh ab sabhi private messages (echo, admin, flows) ko handle karta hai
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, echo_message))
-    # owner_flow_handler is second, so it only runs if echo_message skips (e.g., admin_mode=True)
-    app.add_handler(MessageHandler(is_owner_filter & (filters.TEXT | filters.Document.FileExtension("json")) & ~filters.COMMAND, owner_flow_handler))
-    # --- END FIX ---
+    
+    # owner_flow_handler yahan se HATA diya gaya hai, kyunki echo_message ab usey call karta hai.
 
+    # 3. Command Handlers
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("owner", owner_cmd))
+    
+    # 4. Callback Handler (Buttons)
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     try:
