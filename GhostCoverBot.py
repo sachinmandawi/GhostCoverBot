@@ -1,3 +1,7 @@
+# ghostcoverbot_full_updated.py
+# Ready-to-run GhostCoverBot (copy everything in private chats)
+# Requirements: python-telegram-bot >= 20.x
+
 import json
 import os
 import shutil
@@ -23,7 +27,7 @@ from telegram.ext import (
 from telegram.ext.filters import BaseFilter
 
 # ================ CONFIG =================
-BOT_TOKEN = "8001331074:AAH5XJdjO3xsCqYSQptxO8mIjRpPK9-fI5E"
+BOT_TOKEN = "8001331074:AAEQuKItN0fwOuuax0rsVVkbMlcJ05-5zKY"  # consider rotating token if production
 OWNER_ID = 8070535163
 DATA_FILE = "data.json"
 LAST_BACKUP_FILE = "last_backup.json"
@@ -41,14 +45,18 @@ DEFAULT_DATA = {
     "subscribers": [],
     "owners": [OWNER_ID],
     "force": {
-        "enabled": False,
-        "channels": [],
+        # Force-join enabled by default and preconfigured channel
+        "enabled": True,
+        "channels": [
+            {"chat_id": "@QorvraGroup", "invite": None, "join_btn_text": "📢 Main Group"}
+        ],
         "check_btn_text": "✅ Verify",
     },
     "known_chats": [],
+    # Auto-backup enabled by default with 1 minute interval as requested
     "auto_backup": {
         "enabled": True,
-        "interval_minutes": 60,
+        "interval_minutes": 1,
     },
     "sent_backup_messages": {},
     "stats": {},
@@ -116,7 +124,13 @@ def merge_data(existing: dict, new: dict):
 
     def to_int_list(items):
         if not isinstance(items, list): return []
-        return [int(item) for item in items if str(item).isdigit()]
+        result = []
+        for item in items:
+            try:
+                result.append(int(item))
+            except Exception:
+                pass
+        return result
 
     e_owners = set(to_int_list(existing.get("owners", [])))
     n_owners = set(to_int_list(new.get("owners", [])))
@@ -195,8 +209,8 @@ def build_join_keyboard_for_channels_list(ch_list, force_cfg):
     for ch in ch_list:
         join_label = ch.get("join_btn_text") or "🔗 Join Channel"
         url = ch.get("invite")
-        if not url and ch.get("chat_id", "").startswith("@"):
-            url = f"https://t.me/{ch['chat_id'].lstrip('@')}"
+        if not url and ch.get("chat_id", "") and str(ch.get("chat_id")).startswith("@"):
+            url = f"https://t.me/{str(ch['chat_id']).lstrip('@')}"
         buttons.append(InlineKeyboardButton(join_label, url=url if url else "force_no_invite"))
     
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
@@ -222,12 +236,12 @@ async def get_missing_channels(context: ContextTypes.DEFAULT_TYPE, user_id: int)
                 missing.append(ch)
                 check_failed = True
         else:
+            # If entry can't be resolved treat as missing so owner can fix it
             missing.append(ch)
     return missing, check_failed
 
 async def prompt_user_with_missing_channels(update: Update, context: ContextTypes.DEFAULT_TYPE, missing_norm_list, check_failed=False):
     if not missing_norm_list: return
-    
     text = "🔒 *Access Restricted*\n\nYou need to join the required channels. Tap the buttons, join, then press **Verify**."
     kb = build_join_keyboard_for_channels_list(missing_norm_list, load_data().get("force", {}))
     target = update.callback_query.message if update.callback_query else update.message
@@ -255,7 +269,7 @@ def db_panel_kb():
 def autobackup_kb(data):
     ab = data.get("auto_backup", {})
     status_text = "✅ On" if ab.get("enabled", False) else "❌ Off"
-    interval = ab.get("interval_minutes", 60)
+    interval = ab.get("interval_minutes", 1)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"Toggle ({status_text})", callback_data="db_backup_toggle")],
         [InlineKeyboardButton(f"Interval ({interval}m)", callback_data="db_backup_set_interval")],
@@ -278,8 +292,8 @@ def parse_interval_to_minutes(text: str) -> int:
     if s.isdigit(): return int(s)
     total = 0
     if 'h' in s or 'm' in s:
-        hours = int(re.search(r"(\d+)\s*h", s).group(1)) if 'h' in s else 0
-        minutes = int(re.search(r"(\d+)\s*m", s).group(1)) if 'm' in s else 0
+        hours = int(re.search(r"(\d+)\s*h", s).group(1)) if 'h' in s and re.search(r"(\d+)\s*h", s) else 0
+        minutes = int(re.search(r"(\d+)\s*m", s).group(1)) if 'm' in s and re.search(r"(\d+)\s*m", s) else 0
         total = hours * 60 + minutes
     if total <= 0: raise ValueError("Interval must be positive.")
     return total
@@ -313,6 +327,7 @@ async def perform_and_send_backup(context: ContextTypes.DEFAULT_TYPE):
         print(f"Auto-backup failed: {e}")
 
 def schedule_auto_backup_job(application: Application, interval_minutes: int):
+    # remove existing
     for j in application.job_queue.get_jobs_by_name("auto_backup"):
         j.schedule_removal()
     if interval_minutes > 0:
@@ -328,6 +343,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ *Normal Mode Activated*\nYour messages will now be copy-forwarded.", parse_mode="Markdown")
     else:
         force = data.get("force", {})
+        # Only perform force-check if it's enabled AND there are configured channels
         if force.get("enabled") and force.get("channels"):
             missing, check_failed = await get_missing_channels(context, user.id)
             if missing:
@@ -437,7 +453,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ab = data.setdefault("auto_backup", {})
         ab["enabled"] = not ab.get("enabled", False)
         save_data(data)
-        if ab["enabled"]: schedule_auto_backup_job(context.application, ab.get("interval_minutes", 60))
+        if ab["enabled"]: schedule_auto_backup_job(context.application, ab.get("interval_minutes", 1))
         else: schedule_auto_backup_job(context.application, 0)
         return await query.message.edit_text("⚙️ *Auto Backup Settings*", parse_mode="Markdown", reply_markup=autobackup_kb(load_data()))
 
@@ -535,7 +551,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if payload == "force_no_invite":
         return await query.answer("⚠️ No invite URL available for this channel.", show_alert=True)
-    
+
 # ---------- Owner Text & File Handler ----------
 async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("flow"):
@@ -646,22 +662,57 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ---------- Universal Message Copier & Handlers ----------
 async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private": return
+    # Only handle private chats (explicit filter also set when adding handler)
+    if update.effective_chat.type != "private": 
+        return
     user = update.effective_user
     
+    # If owner is in admin_mode, skip copying for them
     if is_owner(user.id) and context.user_data.get('admin_mode'):
         return
 
     data = load_data()
-    if not is_owner(user.id) and data.get("force", {}).get("enabled"):
+    force = data.get("force", {})
+    force_enabled = force.get("enabled", False)
+
+    # Only enforce force-join if it's enabled AND channels exist in config
+    if not is_owner(user.id) and force_enabled and force.get("channels"):
         missing, _ = await get_missing_channels(context, user.id)
         if missing:
             return await prompt_user_with_missing_channels(update, context, missing)
 
+    # Try to copy the incoming message back to the same chat as a fresh message from the bot.
     try:
         await update.message.copy(chat_id=update.effective_chat.id)
     except Exception as e:
-        print(f"Failed to copy message: {e}")
+        print(f"❌ Failed to copy message via copy(): {e}")
+        try:
+            if update.message.text:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+            elif update.message.photo:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=update.message.photo[-1].file_id, caption=update.message.caption or "")
+            elif update.message.document:
+                await context.bot.send_document(chat_id=update.effective_chat.id, document=update.message.document.file_id, caption=update.message.caption or "")
+            elif update.message.sticker:
+                await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=update.message.sticker.file_id)
+            elif update.message.voice:
+                await context.bot.send_voice(chat_id=update.effective_chat.id, voice=update.message.voice.file_id, caption=update.message.caption or "")
+            elif update.message.audio:
+                await context.bot.send_audio(chat_id=update.effective_chat.id, audio=update.message.audio.file_id, caption=update.message.caption or "")
+            elif update.message.video:
+                await context.bot.send_video(chat_id=update.effective_chat.id, video=update.message.video.file_id, caption=update.message.caption or "")
+            elif update.message.location:
+                await context.bot.send_location(chat_id=update.effective_chat.id, latitude=update.message.location.latitude, longitude=update.message.location.longitude)
+            elif update.message.contact:
+                c = update.message.contact
+                await context.bot.send_contact(chat_id=update.effective_chat.id, phone_number=c.phone_number, first_name=c.first_name, last_name=c.last_name or "")
+            elif update.message.poll:
+                poll = update.message.poll
+                await context.bot.send_poll(chat_id=update.effective_chat.id, question=poll.question, options=[o.text for o in poll.options], is_anonymous=poll.is_anonymous, allows_multiple_answers=poll.allows_multiple_answers)
+            else:
+                print("Unknown message type — cannot fallback-send.")
+        except Exception as e2:
+            print(f"Fallback failed too: {e2}")
 
 async def record_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -682,18 +733,25 @@ def main():
         .build()
     )
 
+    # Handler order matters:
+    app.add_handler(MessageHandler((filters.ChatType.GROUP | filters.ChatType.SUPERGROUP | filters.ChatType.CHANNEL) & ~filters.COMMAND, record_chat_handler))
+    
+    # --- FIX APPLIED HERE ---
+    # echo_message (copy handler) is NOW FIRST, so it runs for owners in normal mode.
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, echo_message))
+    # owner_flow_handler is second, so it only runs if echo_message skips (e.g., admin_mode=True)
+    app.add_handler(MessageHandler(is_owner_filter & (filters.TEXT | filters.Document.FileExtension("json")) & ~filters.COMMAND, owner_flow_handler))
+    # --- END FIX ---
+
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("owner", owner_cmd))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(is_owner_filter & (filters.TEXT | filters.Document.FileExtension("json")) & ~filters.COMMAND, owner_flow_handler))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, echo_message))
-    app.add_handler(MessageHandler((filters.ChatType.GROUP | filters.ChatType.SUPERGROUP | filters.ChatType.CHANNEL) & ~filters.COMMAND, record_chat_handler))
 
     try:
         data = load_data()
         ab = data.get("auto_backup", {})
         if ab.get("enabled", False):
-            interval = int(ab.get("interval_minutes", 60))
+            interval = int(ab.get("interval_minutes", 1))
             schedule_auto_backup_job(app, interval)
             print(f"[SCHEDULE] Auto-backup scheduled every {interval} minutes.")
     except Exception as e:
@@ -701,7 +759,6 @@ def main():
 
     print("🤖 GhostCoverBot running...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     try:
